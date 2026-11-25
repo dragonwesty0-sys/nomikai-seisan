@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一次会と二次会の割り勘・立替精算 | 飲み会精算</title>
+<meta name="description" content="会計ごとに参加者を選ぶと、最後に誰が誰へいくら払うか分かります。">
+<meta property="og:title" content="一次会と二次会の割り勘・立替精算 | 飲み会精算">
+<meta property="og:description" content="会計ごとに参加者を選ぶと、最後に誰が誰へいくら払うか分かります。">
+<meta property="og:type" content="website">
+<style>:root{--accent:#a63836;--bg:#fbf1e8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#24242b;font:16px/1.65 system-ui,sans-serif}header,main,footer{width:min(100% - 2rem,50rem);margin:auto}header{padding:1.15rem 0;font-weight:800;color:var(--accent);border-bottom:1px solid #24242b24}main{padding:clamp(1.7rem,5vw,3.8rem) 0}h1{font-size:clamp(1.65rem,5.5vw,3.3rem);line-height:1.25;margin:0 0 .65rem;letter-spacing:-.04em}h2{font-size:1.25rem;margin:0 0 .5rem}p{margin:0 0 1rem}.lead{max-width:36rem}.panel{background:#fff;border:1px solid #24242b20;border-radius:1.25rem;padding:clamp(.9rem,4vw,1.6rem);margin-top:1.4rem}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr));gap:0 1rem}label{display:block;font-weight:650;margin-bottom:.85rem}input:not([type=checkbox]),textarea,select{display:block;width:100%;font:inherit;margin-top:.3rem;padding:.55rem .7rem;border:1px solid #686874;border-radius:.5rem;background:#fff;color:#24242b;min-height:44px}textarea{min-height:8rem;resize:vertical}button{font:inherit;font-weight:700;min-height:44px;padding:.45rem .8rem;border:1px solid var(--accent);border-radius:.55rem;color:var(--accent);background:#fff;cursor:pointer}.primary{background:var(--accent);color:white}button:disabled{opacity:.55;cursor:default}fieldset{border:1px solid #b4b4bd;border-radius:.6rem;margin:0 0 .75rem;padding:.7rem;min-width:0}legend{font-weight:700}.checks{display:flex;flex-wrap:wrap;gap:.25rem .9rem}.checks label{display:inline-flex;align-items:center;gap:.3rem;min-height:34px;margin-bottom:.35rem}input[type=checkbox]{width:1.25rem;height:1.25rem}.actions{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:1rem}output{display:block;white-space:pre-wrap;overflow-wrap:anywhere;border-top:1px solid #24242b24;margin-top:1rem;padding-top:1rem}output:empty{display:none}.guide{margin-top:2rem}footer{border-top:1px solid #24242b24;padding:1rem 0;color:#4c4c56;font-size:.9rem}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}[hidden]{display:none!important}</style>
+</head>
+<body>
+<header>飲み会精算</header>
+<main>
+<h1>一次会と二次会の割り勘・立替精算</h1>
+<p class="lead">会計ごとに参加者を選ぶと、最後に誰が誰へいくら払うか分かります。</p>
+<div class="panel">
+<form id="tool">
+<label>参加者（1行に1人）<textarea id="people">葵
+蓮
+凛
+湊
+澪</textarea></label><div id="bills"></div><button type="button" id="add">会計を追加</button>
+<div class="actions"><button class="primary" type="submit">最終精算を計算</button><button type="button" id="copy" disabled>結果をコピー</button></div>
+</form>
+<output id="result" aria-live="polite"></output>
+<p id="notice" role="status"></p>
+</div>
+<section class="guide">
+<h2>使い方と計算・入力のルール</h2>
+<p>各会計はその会計の参加者だけで均等に負担します。割り切れない1円は、参加者リストの上から順に加算します。立替者はその会計の参加者に含まれなくても設定できます。</p>
+</section>
+</main>
+<footer>入力内容はブラウザ内で処理し、このページから外部に送信しません。</footer>
+<script>
+'use strict';
+const form = document.querySelector('#tool');
+const result = document.querySelector('#result');
+const copy = document.querySelector('#copy');
+const status = document.querySelector('#notice');
+const people = document.querySelector('#people');
+const bills = document.querySelector('#bills');
+const add = document.querySelector('#add');
+const names = () => people.value.split(/\n/).map(name => name.trim()).filter(Boolean);
+function refreshChoices() {
+  const options = [...new Set(names())];
+  for (const row of bills.children) {
+    const payer = row.querySelector('select');
+    const previousPayer = payer.value;
+    payer.replaceChildren(...options.map(name => new Option(name, name)));
+    if (options.includes(previousPayer)) payer.value = previousPayer;
+    const checks = row.querySelector('.checks');
+    const saved = new Map([...checks.querySelectorAll('input')].map(input => [input.value, input.checked]));
+    checks.replaceChildren(...options.map(name => {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = name;
+      input.checked = saved.get(name) ?? true;
+      label.append(input, name);
+      return label;
+    }));
+  }
+}
+function addBill(amount = '', payer = '', attendees) {
+  const row = document.createElement('fieldset');
+  row.innerHTML = '<legend>会計</legend><div class="fields"><label>金額（円）<input class="amount" type="number" min="1" max="10000000" step="1" required></label><label>立替者<select required></select></label></div><p>この会計に参加した人</p><div class="checks"></div><button type="button" class="remove">この会計を削除</button>';
+  row.querySelector('.amount').value = amount;
+  row.querySelector('.remove').addEventListener('click', () => {
+    row.remove();
+    result.textContent = '変更しました。もう一度計算してください。';
+  });
+  bills.append(row);
+  refreshChoices();
+  if (payer) row.querySelector('select').value = payer;
+  if (attendees) for (const input of row.querySelectorAll('.checks input')) input.checked = attendees.includes(input.value);
+}
+people.addEventListener('input', refreshChoices);
+add.addEventListener('click', () => addBill());
+addBill(12000, '葵');
+addBill(5400, '蓮', ['葵', '蓮', '凛']);
+function calculate() {
+  const members = names();
+  if (members.length < 2 || new Set(members).size !== members.length) throw Error('異なる名前を2人以上入力してください。');
+  if (!bills.children.length) throw Error('会計を1件以上追加してください。');
+  const balances = new Map(members.map(name => [name, 0]));
+  for (const [index, row] of [...bills.children].entries()) {
+    const amount = row.querySelector('.amount').valueAsNumber;
+    const payer = row.querySelector('select').value;
+    const attendees = [...row.querySelectorAll('input:checked')].map(input => input.value);
+    if (!attendees.length) throw Error('会計' + (index + 1) + 'の参加者を選んでください。');
+    const base = Math.floor(amount / attendees.length);
+    const remainder = amount % attendees.length;
+    balances.set(payer, balances.get(payer) + amount);
+    attendees.forEach((name, i) => balances.set(name, balances.get(name) - base - Number(i < remainder)));
+  }
+  const debtors = [...balances].filter(([, amount]) => amount < 0);
+  const creditors = [...balances].filter(([, amount]) => amount > 0);
+  const payments = [];
+  let receiver = 0;
+  for (const [name, balance] of debtors) {
+    let remaining = -balance;
+    while (remaining > 0) {
+      const [recipient, due] = creditors[receiver];
+      const payment = Math.min(remaining, due);
+      payments.push(name + ' → ' + recipient + '　' + payment.toLocaleString('ja-JP') + '円');
+      remaining -= payment;
+      creditors[receiver][1] -= payment;
+      if (creditors[receiver][1] === 0) receiver += 1;
+    }
+  }
+  return payments.length ? payments.join('\n') : '追加の支払いはありません。';
+}
+
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  try {
+    result.textContent = calculate();
+    copy.disabled = false;
+  } catch (error) {
+    result.textContent = error.message;
+    copy.disabled = true;
+  }
+  status.textContent = '';
+});
+function clearResult() {
+  result.textContent = '';
+  status.textContent = '';
+  copy.disabled = true;
+}
+form.addEventListener('input', clearResult);
+form.addEventListener('click', event => {
+  if (event.target.matches('#add, .remove')) clearResult();
+});
+copy.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(result.textContent);
+    status.textContent = 'コピーしました。';
+  } catch {
+    status.textContent = 'コピーできない場合は、結果を選択してコピーしてください。';
+  }
+});
+
+</script>
+</body>
+</html>
